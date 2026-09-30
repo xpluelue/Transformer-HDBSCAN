@@ -41,7 +41,17 @@ def cluster_wise_score(target: np.ndarray, cl: np.ndarray, score: str = "mcc") -
         score_l = []
         for c in np.unique(cl):
             c_mask = (c == cl).astype("int")
-            score_l.append(score_fun(c_mask, (t == target).astype("int")))
+            target_mask = (t == target).astype("int")
+            # MCC is defined as zero for a degenerate one-class binary task.
+            # Calling sklearn here emits a warning for every such pulse window.
+            if score == "mcc" and (
+                np.unique(c_mask).size < 2 or np.unique(target_mask).size < 2
+            ):
+                score_l.append(0.0)
+            elif score in {"recall", "precision", "f1"}:
+                score_l.append(score_fun(c_mask, target_mask, zero_division=0))
+            else:
+                score_l.append(score_fun(c_mask, target_mask))
         per_cluster_l.append(np.max(score_l))
     return np.min(per_cluster_l)
 
@@ -170,4 +180,3 @@ def evaluate_model_on_dataset(
         return {key: sum(values) / len(values) for key, values in all_scores.items()}
     else:
         return all_scores
-

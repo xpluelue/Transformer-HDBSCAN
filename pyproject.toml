@@ -23,7 +23,13 @@
 
 [tool.hatch.metadata.hooks.requirements_txt.optional-dependencies]
     dev = ["requirements_dev.txt"]
-    demo = ["requirements_demo.txt"]
+    gpu = ["requirements_gpu.txt"]
+
+[project.scripts]
+tdc-transformer-train = "turing_deinterleaving_challenge.transformer_hdbscan.train:main"
+tdc-transformer-predict = "turing_deinterleaving_challenge.transformer_hdbscan.predict:main"
+tdc-evaluate-saved = "turing_deinterleaving_challenge.transformer_hdbscan.evaluate_saved:main"
+tdc-repair-dataset = "turing_deinterleaving_challenge.transformer_hdbscan.repair_dataset:main"
 
 [project.urls]
 Homepage = "https://github.com/egunn-turing/turing-deinterleaving-challenge"

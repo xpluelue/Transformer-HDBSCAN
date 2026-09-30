@@ -7,7 +7,16 @@ from __future__ import annotations
 from importlib.metadata import version
 
 from .data import DeinterleavingChallengeDataset, PulseTrain, download_dataset
-from .models import Deinterleaver, evaluate_model_on_dataset
+from .models import (
+    Deinterleaver,
+    EENDEDADeinterleaver,
+    PDWStandardizer,
+    RadarEENDEDA,
+    TransformerMetricDeinterleaver,
+    TransformerMetricEncoder,
+    evaluate_model_on_dataset,
+    triplet_metric_loss,
+)
 from .visualisation import (
     plot_data,
     plot_pdws,
@@ -19,7 +28,12 @@ from .visualisation import (
 __all__ = (
     "Deinterleaver",
     "DeinterleavingChallengeDataset",
+    "EENDEDADeinterleaver",
     "PulseTrain",
+    "PDWStandardizer",
+    "RadarEENDEDA",
+    "TransformerMetricDeinterleaver",
+    "TransformerMetricEncoder",
     "__version__",
     "download_dataset",
     "evaluate_model_on_dataset",
@@ -28,5 +42,6 @@ __all__ = (
     "plot_pulse_train",
     "plot_true_vs_predicted_features",
     "scatter_features",
+    "triplet_metric_loss",
 )
 __version__ = version(__name__)

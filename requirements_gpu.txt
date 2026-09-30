@@ -1,0 +1,3 @@
+# GPU HDBSCAN: RAPIDS 26.08 built for CUDA 13.
+cuml-cu13==26.8.0
+libcuml-cu13==26.8.0

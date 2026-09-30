@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 
@@ -106,12 +107,39 @@ celerybeat.pid
 
 # Environments
 .env
+/.env.*
+!/.env.example
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Secrets, SSH credentials, and machine-specific remote configuration
+/.sync.env
+/.sync.env.*
+/.ssh/
+/.aws/
+/.kube/
+/.vscode/
+*.pem
+*.key
+*.p12
+*.pfx
+*.ovpn
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+known_hosts
+ssh_config
+credentials.json
+credentials*.json
+secrets.json
+secrets*.json
+token.txt
+tokens.txt
 
 # Spyder project settings
 .spyderproject
@@ -163,3 +191,32 @@ jupyter
 .idea
 figures/*mp4
 figures/*pdf
+
+# Local datasets and generated experiment outputs
+/turing-synthetic-radar-dataset/
+/experiments/
+/results/
+
+# Model checkpoints and generated numerical/HDF5 artifacts
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.h5
+*.hdf5
+*.npy
+*.npz
+
+# Dataset audit/repair reports and local test outputs
+/dataset_audit*.json
+/dataset_repair*.json
+/test-results/
+
+# Legacy/local synchronization notes. Use scripts/sync_workspace.sh instead.
+/resync.md
+
+# Server process/runtime files
+nohup.out
+screenlog.*
+slurm-*.out
+*.pid

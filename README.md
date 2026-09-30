@@ -149,6 +149,139 @@ Performance is typically evaluated using clustering metrics such as **V-measure*
 
 This challenge is inspired by recent research including "Radar Pulse Deinterleaving with Transformer Based Deep Metric Learning" (arXiv:2503.13476), which demonstrates transformer-based approaches achieving 0.882 adjusted mutual information score on synthetic radar pulse data using 5-dimensional PDWs.
 
+### Transformer metric-learning baseline
+
+The maintained complete-file Transformer + GPU HDBSCAN pipeline lives under
+`src/turing_deinterleaving_challenge/transformer_hdbscan/`. Its architecture,
+training, evaluation, and PDW Studio export commands are documented in
+[`docs/transformer_hdbscan.md`](docs/transformer_hdbscan.md).
+
+The included Transformer baseline uses a four-layer encoder only:
+
+```
+raw PDW -> delta-ToA + per-window normalization -> Transformer Encoder
+        -> one 8-dimensional embedding per pulse -> HDBSCAN
+```
+
+It trains with same-window triplet metric loss: same-emitter pulses are pulled
+together and different-emitter pulses are pushed apart.  Emitter labels are
+arbitrary between pulse trains, so positives are never formed across different
+windows.  Train with fixed windows rather than complete pulse trains because
+standard Transformer attention grows quadratically with sequence length:
+
+```commandline
+torchrun --standalone --nproc_per_node=2 scripts/train_transformer_metric.py \
+  --config configs/transformer_metric_scan.yaml \
+  --train-dir /path/to/stare \
+  --validation-dir /path/to/stare \
+  --n-jobs 8 \
+  --device cuda \
+  --output results/transformer_metric.pt
+```
+
+The script lazily reads HDF5 windows and selects the checkpoint with the best
+validation V-measure after per-window HDBSCAN clustering. Each window is
+normalized independently after the delta-ToA conversion, so its features use
+only the pulses available to the Transformer and HDBSCAN for that score.
+Training, validation, and test always visit every non-empty pulse train in
+source order. They use non-overlapping 1024-pulse windows; a final partial
+window is padded with an attention mask so no trailing pulses are dropped.
+There is no sampling mode. Add `--shuffle-train-windows` to shuffle the order
+of all training windows each epoch; validation and test windows always retain
+source order.
+Training caches up to 32 read-only HDF5 handles per DataLoader worker and
+keeps workers alive across epochs. Add `--amp` (BF16 by default on compatible
+CUDA GPUs) to use automatic mixed precision; select FP16 explicitly with
+`--amp-dtype fp16`.
+Training retains every non-empty window. For a directly comparable HDBSCAN
+metric, validation and test score only complete 1024-pulse windows containing
+at least two true emitters (`--min-emitters 2`), exactly as
+`evaluate_hdbscan_scan.py` does; skipped tail/single-emitter windows are
+reported in the epoch log and test JSON. HDBSCAN is parallelized across the
+eligible independent windows. `--n-jobs` is the number of concurrent
+clustering workers rather than the number assigned to one small HDBSCAN call.
+DDP writes rank-labelled lifecycle messages, epoch summaries, and any fatal
+traceback from both ranks to one `train.log` under a directory derived from
+the model name by default. Only rank zero records the per-epoch metrics. For example,
+`--output results/transformer_metric.pt` writes logs to
+`results/transformer_metric/logs/`. Override the location with `--log-dir`.
+In DDP, `--n-jobs` is the worker count per GPU process; `baseline.sh` divides
+its `N_JOBS` value across the two training processes. `BATCH_SIZE` is global,
+so each GPU receives half of it.
+V-measure is the challenge's primary metric, so it is also the early-stopping
+and best-checkpoint criterion; the default patience is five consecutive epochs.
+The supplied experiment YAML uses random seed 42 for both training and test
+evaluation.
+TSRD layouts using `val_scan` are recognized as validation sets. If a dataset
+release genuinely has no separate validation split, omit `--validation-dir`;
+the script then holds out 10% of train files for validation and keeps test
+files untouched.
+For the standard two-GPU run, execute `bash baseline.sh`. Training, validation,
+and test evaluation use DDP (one process per GPU): each rank handles a disjoint
+half of the windows, rank zero aggregates metrics and displays the sole tqdm
+progress bar.
+
+`baseline.sh` follows the V6 baseline convention: add a
+`model-or-experiment-name:config.yaml` item to its `EXPERIMENTS` array and all
+artifacts are kept under
+`experiments/<experiment-name>/`:
+
+```
+experiments/transformer_metric_scan/
+├── config.yaml
+├── model.pt
+├── predictions.npz
+├── test.json
+└── logs/
+    └── train.log
+```
+
+Test evaluation stores the HDBSCAN assignments in `predictions.npz`. It
+contains the original dataset window index, source-file index, pulse start,
+predicted labels, and true labels for every eligible full window. HDBSCAN's
+noise label is `-1`, and cluster IDs are local to each window. When
+`--predictions-output` is omitted, the filename defaults to
+`<checkpoint_stem>_predictions.npz` next to the checkpoint.
+
+`configs/transformer_metric_scan.yaml` holds the executable training/evaluation
+commands as well as all training, model, and evaluation parameters. Copy it to
+define either a Transformer variant or a different model, then add the new
+`name:config.yaml` pair to `EXPERIMENTS`; `baseline.sh` itself needs no model
+specific changes. Its `BATCH_SIZE` environment variable overrides the YAML
+batch size for both training and evaluation, for example
+`BATCH_SIZE=512 bash baseline.sh`. Its `N_JOBS` value is the total worker
+budget and is split between DDP processes. Use
+`RUN_ROOT=experiments/scan_v2 bash baseline.sh` to change the parent directory,
+or `ONLY=transformer_metric_scan bash baseline.sh` to select a single item.
+Each invocation starts a concise fresh `train.log`; use a new experiment name
+when separate historical runs need to be retained.
+
+### Chronological Transformer EEND-EDA
+
+The EEND-EDA experiment keeps the same 1024-pulse windows, delta-ToA
+transformation, per-window normalization, and Transformer encoder as the
+metric-learning baseline. It replaces HDBSCAN with a chronological LSTM
+encoder-decoder attractor head:
+
+```
+normalized PDWs -> Transformer embeddings -> chronological EDA
+                -> variable attractors -> pulse-attractor softmax -> argmax
+```
+
+Training uses only a Hungarian-matched assignment cross entropy and the
+attractor-existence binary cross entropy. `max_attractors=96` is a configurable
+safety cap, chosen just above TSRD's published maximum of 90 emitters in a
+complete scan pulse train. Training decodes only to the largest true emitter
+count in the current batch plus one stop step, and inference stops at the first
+existence probability below 0.5. Run only this experiment with:
+
+```commandline
+ONLY=transformer_eda_scan BATCH_SIZE=128 bash baseline.sh
+```
+
+Its test JSON contains the standard clustering metrics plus local emitter-count
+accuracy, MAE, under-count rate, and over-count rate.
+
 ## Installation
 ### Interface
 The TDC version 1.3 was developed and tested on `python=3.13` but any version  >=3.10 should work. If you face any 
@@ -168,11 +301,43 @@ git clone https://github.com/alan-turing-institute/turing-deinterleaving-challen
 python3 -m pip install -e ".[dev]"
 ```
 
-For running the jupyter notebook demo, please also run
+For running the optional Jupyter notebook demos, install the notebook UI packages:
 
 ```commandline
-python3 -m pip install -e ".[demo]"
+python3 -m pip install ipykernel ipywidgets
 ```
+
+### Local/server synchronization
+
+Run the maintained synchronization script from the **local workstation**, not
+from an SSH shell on the server. Create a local `.sync.env` file first; it is
+ignored by both Git and rsync and must never contain an SSH password or
+private-key body:
+
+```dotenv
+TDC_REMOTE_HOST=your-user@your-server
+TDC_REMOTE_DIR=/absolute/path/to/turing-deinterleaving-challenge
+```
+
+Preview a code upload first, then run it:
+
+```commandline
+scripts/sync_workspace.sh push-code --dry-run
+scripts/sync_workspace.sh push-code
+```
+
+`push-code` and `pull-code` make the non-generated source tree identical while
+protecting datasets, checkpoints, and server-side experiment outputs through
+`resync.ignore`. To keep only compact metrics locally, run:
+
+```commandline
+scripts/sync_workspace.sh pull-metrics --dry-run
+scripts/sync_workspace.sh pull-metrics
+```
+
+There is deliberately no committed default server address. Formal tests are
+source code and are synchronized; credentials, caches, and generated test
+outputs are excluded.
 
 ### Data Download
 The data is available on HuggingFace and can be downloaded directly here: [https://huggingface.co/datasets/alan-turing-institute/turing-deinterleaving-challenge](https://huggingface.co/datasets/alan-turing-institute/turing-deinterleaving-challenge). 

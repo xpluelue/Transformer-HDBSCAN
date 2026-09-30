@@ -1,0 +1,79 @@
+# Chronological EEND-EDA: the existing Transformer PDW encoder followed by a
+# dynamically decoded attractor head. max_attractors is only a safety cap;
+# training decodes to batch_max_true_emitters + one stop step.
+commands:
+  - name: train
+    argv:
+      - "{torchrun}"
+      - --standalone
+      - "--nproc_per_node={nproc_per_node}"
+      - scripts/train_eend_eda.py
+      - --config
+      - "{config}"
+      - --train-dir
+      - "{data_dir}"
+      - --validation-dir
+      - "{data_dir}"
+      - --n-jobs
+      - "{train_n_jobs}"
+      - --batch-size
+      - "{batch_size}"
+      - --device
+      - cuda
+      - --log-dir
+      - "{run_dir}/logs"
+      - --output
+      - "{run_dir}/model.pt"
+  - name: evaluate
+    argv:
+      - "{torchrun}"
+      - --standalone
+      - "--nproc_per_node={nproc_per_node}"
+      - scripts/evaluate_eend_eda.py
+      - --config
+      - "{config}"
+      - --test-dir
+      - "{data_dir}"
+      - --checkpoint
+      - "{run_dir}/model.pt"
+      - --n-jobs
+      - "{train_n_jobs}"
+      - --batch-size
+      - "{batch_size}"
+      - --device
+      - cuda
+      - --output
+      - "{run_dir}/test.json"
+
+train:
+  window_length: 1024
+  epochs: 30
+  batch_size: 128
+  hdf5_cache_size: 32
+  shuffle_train_windows: true
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  amp: true
+  amp_dtype: bf16
+  alpha: 1.0
+  min_emitters: 2
+  early_stopping_patience: 3
+  seed: 42
+
+model:
+  model_dim: 128
+  num_layers: 4
+  num_heads: 4
+  embedding_dim: 8
+  feedforward_dim: 256
+  dropout: 0.1
+  max_attractors: 96
+  existence_threshold: 0.5
+  assignment_logit_scale: 10.0
+
+evaluation:
+  window_length: 1024
+  batch_size: 128
+  n_jobs: 0
+  min_emitters: 2
+  seed: 42
